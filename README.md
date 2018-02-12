@@ -30,3 +30,6 @@ Using Node's package manager run this in a command window:
 npm install chromedriver
 ```
 Or you can download it from https://sites.google.com/a/chromium.org/chromedriver/
+
+### Add information into ig_access.py
+In `ig_access.py` in lines 9-10 add your Instagram username, password, and location of chromedriver.exe on your computer.
