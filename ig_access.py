@@ -8,6 +8,7 @@ import time
 
 USERNAME = 'ENTER USERNAME'
 PASSWORD = 'ENTER PASSWORD'
+CHROME_DRIVER_LOCATION = 'LOCATION OF YOUR chromedriver.exe'
 
 
 class IGAccess:
@@ -22,11 +23,17 @@ class IGAccess:
     followers     - list of followers
     following     - list of following
     data          - dictionary of collected data, keys:
+                    > num_followers
+                    > num_following
+                    > followers
+                    > following
                     > not_followed_back
                     > not_following_back
                     > following_verified
                     > followed_by_verified
                     > likes_per_post
+                    > total_likes
+                    > avg_likes
     """
     username: str
     password: str
@@ -37,12 +44,10 @@ class IGAccess:
         Initialize a new IG Check class
         """
         self.username, self.password, self.show_progress = username, password, show_progress
-        self.followers = []
-        self.following = []
         self.data = {}
 
         # Initialize driver
-        self.driver = webdriver.Chrome('/Applications/Python 3.6/chromedriver')
+        self.driver = webdriver.Chrome(CHROME_DRIVER_LOCATION)
 
     def login(self) -> None:
         """
@@ -57,18 +62,24 @@ class IGAccess:
         self.driver.find_element_by_name('username').send_keys(self.username)
         self.driver.find_element_by_name('password').send_keys(self.password)
 
+        waiting_animation = ['\\', '|', '/', '-']
+
         # Prompt user to click 'Log in' button
-        print('PROMPT: Click \'Log in\' ', end='', flush=True)
+        print('PROMPT: Click \'Log in\' -', end='')
         logged_in = False
 
+        animation_index = 0
         # Loop until user clicks 'Log in'
         while not logged_in:
             try:
                 self.driver.find_element_by_class_name('coreSpriteDesktopNavProfile')
                 logged_in = True
-                print('\n')
+                print('\rPROMPT: Click \'Log in :)\n')
             except NoSuchElementException:
-                print('.', end='', flush=True)
+                print('\rPROMPT: Click \'Log in\' %s' % waiting_animation[animation_index], end='', flush=True)
+                animation_index += 1
+                if animation_index == 4:
+                    animation_index = 0
                 time.sleep(1)
 
     def logout(self) -> None:
@@ -96,13 +107,19 @@ class IGAccess:
             print('Getting user\'s followers')
         # Get list of user's followers
         self.driver.get('https://www.instagram.com/%s' % self.username)
-        self.followers = self._get_followers()
+        followers = self._get_followers()
 
         if self.show_progress:
             print('Getting user\'s following')
         # Get list of users user's following
         self.driver.get('https://www.instagram.com/%s' % self.username)
-        self.following = self._get_following()
+        following = self._get_following()
+
+        # Add to self.data
+        self.data['num_followers'] = len(followers)
+        self.data['num_following'] = len(following)
+        self.data['followers'] = followers
+        self.data['following'] = following
 
     def collect_follow_diff(self) -> None:
         """
@@ -111,11 +128,14 @@ class IGAccess:
         if self.show_progress:
             print('Analysing follower/following data')
 
-        not_followed_back = [user for user in self.following if user not in self.followers]
-        not_following_back = [user for user in self.followers if user not in self.following]
+        followers = self.data['followers']
+        following = self.data['following']
 
-        following_verified = [user for user in self.following if '(Verified)' in user]
-        followed_by_verified = [user for user in self.followers if '(Verified)' in user]
+        not_followed_back = [user for user in following if user not in followers]
+        not_following_back = [user for user in followers if user not in following]
+
+        following_verified = [user for user in following if '(Verified)' in user]
+        followed_by_verified = [user for user in followers if '(Verified)' in user]
 
         # Append gathered data into self.data
         self.data['not_followed_back'] = not_followed_back
@@ -202,8 +222,36 @@ class IGAccess:
                 # Close iframe
                 self.driver.find_element_by_xpath('/html/body/div[4]/div/button').click()
 
+        total_likes = sum([len(list_) for list_ in data_per_post])
+        avg_likes = len(data_per_post) / total_likes
+
         # Add collected data to self attribute
         self.data['likes_per_post'] = data_per_post
+        self.data['total_likes'] = total_likes
+        self.data['avg_likes'] = avg_likes
+
+    def output_data(self) -> None:
+        """
+        Output self.data to [USERNAME]_data.json
+        Overwrites if data already present.
+        """
+        import json
+        from json.decoder import JSONDecodeError
+
+        if self.show_progress:
+            print('\nWriting data to %s_data.json' % self.username)
+
+        with open('%s_data.json' % self.username, 'r') as f:
+            try:
+                data = json.load(f)
+            except JSONDecodeError:  # file is empty
+                data = {}
+
+            for key in self.data:
+                data[key] = self.data[key]
+
+        with open('%s_data.json' % self.username, 'w') as f:
+            json.dump(data, f, indent=2)
 
     # ===== PRIVATE HELPER METHODS =====
 
@@ -241,8 +289,8 @@ class IGAccess:
         dialog = self.driver.find_element_by_xpath('/html/body/div[4]/div/div[2]/div/div[2]')
 
         if self.show_progress:
-            print('Progress:')
-            print('\t[' + (' ' * 40) + ']' + ' 0%', end='', flush=True)
+            print('Progress:', flush=True)
+            print('\t[' + (' ' * 40) + ']' + ' 0%', end='')
 
         # Keep scrolling down the iframe until all users are showing
         list_of_users = self._clean_list(self.driver.find_element_by_class_name('_b9n99').text)
@@ -290,9 +338,9 @@ if __name__ == '__main__':
 
     iga.login()
 
-    # iga.collect_follow_data()
-    #
-    # iga.collect_follow_diff()
+    iga.collect_follow_data()
+
+    iga.collect_follow_diff()
     # data = iga.data
     #
     # print('\n%d people don\'t follow you back:' % len(data['not_followed_back']))
@@ -312,6 +360,8 @@ if __name__ == '__main__':
     #     print('\t%s' % user)
 
     # iga.collect_likes_data()
+
+    iga.output_data()
 
     time.sleep(5)
     iga.logout()
