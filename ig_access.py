@@ -8,6 +8,7 @@ import time
 
 USERNAME = 'ENTER USERNAME'
 PASSWORD = 'ENTER PASSWORD'
+CHROME_DRIVER_LOCATION = 'LOCATION OF YOUR chromedriver.exe'
 
 
 class IGAccess:
@@ -42,7 +43,7 @@ class IGAccess:
         self.data = {}
 
         # Initialize driver
-        self.driver = webdriver.Chrome('/Applications/Python 3.6/chromedriver')
+        self.driver = webdriver.Chrome(CHROME_DRIVER_LOCATION)
 
     def login(self) -> None:
         """
