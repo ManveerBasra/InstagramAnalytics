@@ -6,10 +6,6 @@ from selenium.common.exceptions import NoSuchElementException
 from typing import List
 import time
 
-USERNAME = 'ENTER USERNAME'
-PASSWORD = 'ENTER PASSWORD'
-CHROME_DRIVER_LOCATION = 'LOCATION OF YOUR chromedriver.exe'
-
 
 class IGAccess:
     """
@@ -45,16 +41,16 @@ class IGAccess:
         """
         self.username, self.password, self.show_progress = username, password, show_progress
         self.data = {}
+        self.driver = None
 
-        # Initialize driver
-        self.driver = webdriver.Chrome(CHROME_DRIVER_LOCATION)
-
-    def login(self) -> None:
+    def login(self, chromedriver_location) -> None:
         """
         Log into Instagram
         """
         if self.show_progress:
             print('Logging in')
+
+        self.driver = webdriver.Chrome(chromedriver_location)
         self.driver.get('https://www.instagram.com/accounts/login/')
 
         time.sleep(0.5)
@@ -76,10 +72,8 @@ class IGAccess:
                 logged_in = True
                 print('\rPROMPT: Click \'Log in :)\n')
             except NoSuchElementException:
-                print('\rPROMPT: Click \'Log in\' %s' % waiting_animation[animation_index], end='', flush=True)
+                print('\rPROMPT: Click \'Log in\' %s' % waiting_animation[animation_index % 4], end='', flush=True)
                 animation_index += 1
-                if animation_index == 4:
-                    animation_index = 0
                 time.sleep(1)
 
     def logout(self) -> None:
@@ -241,7 +235,7 @@ class IGAccess:
         if self.show_progress:
             print('\nWriting data to %s_data.json' % self.username)
 
-        with open('%s_data.json' % self.username, 'r') as f:
+        with open('%s_data.json' % self.username, 'w+') as f:
             try:
                 data = json.load(f)
             except JSONDecodeError:  # file is empty
@@ -250,8 +244,7 @@ class IGAccess:
             for key in self.data:
                 data[key] = self.data[key]
 
-        with open('%s_data.json' % self.username, 'w') as f:
-            json.dump(data, f, indent=2)
+            json.dump(data, f, indent=4)
 
     # ===== PRIVATE HELPER METHODS =====
 
@@ -334,9 +327,19 @@ class IGAccess:
         return return_list
 
 if __name__ == '__main__':
-    iga = IGAccess(USERNAME, PASSWORD, True)
+    import configparser
 
-    iga.login()
+    parser = configparser.ConfigParser()
+    parser.read('userconfig.ini')
+    parser.optionxform = str
+
+    username = parser.get('USER', 'username')
+    password = parser.get('USER', 'password')
+    chromedriver_location = parser.get('CHROMEDRIVER', 'driver_location')
+
+    iga = IGAccess(username, password, True)
+
+    iga.login(chromedriver_location)
 
     iga.collect_follow_data()
 
