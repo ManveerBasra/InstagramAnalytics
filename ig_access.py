@@ -359,7 +359,7 @@ class IGAccess:
         return return_list
 
 if __name__ == '__main__':
-    import configparser
+    import configparserg
 
     parser = configparser.ConfigParser()
     parser.read('userconfig.ini')
