@@ -27,7 +27,12 @@ class IGAccess:
                     > not_following_back
                     > following_verified
                     > followed_by_verified
-                    > likes_per_post
+                    > num_posts
+                    > data_per_post - list of dictionaries for each post, keys:
+                        > url
+                        > likes
+                        > liked_by
+                        > comments
                     > total_likes
                     > avg_likes
     """
@@ -43,14 +48,17 @@ class IGAccess:
         self.data = {}
         self.driver = None
 
-    def login(self, chromedriver_location) -> None:
+    def login(self, chromedriver_location: str) -> None:
         """
         Log into Instagram
         """
         if self.show_progress:
             print('Logging in')
 
-        self.driver = webdriver.Chrome(chromedriver_location)
+        if chromedriver_location == 'ENTER_CHROMEDRIVER_LOCATION':  # User put chromedriver.exe into PATH.
+            self.driver = webdriver.Chrome()
+        else:
+            self.driver = webdriver.Chrome(chromedriver_location)
         self.driver.get('https://www.instagram.com/accounts/login/')
 
         time.sleep(0.5)
@@ -157,77 +165,52 @@ class IGAccess:
         for row in range(num_of_img_rows):
             for i in range(3):
                 # Get image based on current row and index
+                img_xpath = '//*[@id="react-root"]/section/main/article/div[2]/div/div[%d]/div[%d]' % (row + 1, i + 1)
+
                 try:
-                    self.driver.find_element_by_xpath(
-                        '//*[@id="react-root"]/section/main/article/div[2]/div/div[%d]/div[%d]' % (row+1, i+1)).click()
+                    img = self.driver.find_element_by_xpath(img_xpath)
                 except NoSuchElementException:
                     # implies no more images in this row
                     continue
 
+                # Hover over image and get likes/comments data
+                ActionChains(self.driver).move_to_element(img).perform()
+                snapshot_data = self.driver.find_element_by_xpath(img_xpath + '/a/div[2]').text.split('\n')
+                likes = snapshot_data[0]
+                comments = snapshot_data[2]
+
+                img.click()
+
                 time.sleep(1)
 
-                # Get the number of likes and click on the likes link
-                like_obj = self.driver.find_element_by_xpath(
-                    '/html/body/div[4]/div/div[2]/div/article/div[2]/section[2]/div/a')
-                num_of_likes = int(like_obj.text.split(' ')[0])
-                like_obj.click()
+                users_who_liked = self._get_likes_from_post(row, i, num_of_img_rows, likes)
 
-                time.sleep(0.5)
+                post_data = {
+                    'url': self.driver.current_url,
+                    'likes': len(users_who_liked),
+                    'liked_by': users_who_liked,
+                    'comments': comments
+                }
 
-                # Keep scrolling down the iframe until all users are showing
-                dialog = self.driver.find_element_by_xpath('/html/body/div[4]/div/div[2]/div/article/div[2]/div[2]')
-                list_of_users = self._clean_list(self.driver.find_element_by_class_name('_b9n99').text)
-                update_delay = 0
-                while len(list_of_users) < num_of_likes:
-                    last_count = len(list_of_users)  # Keep track of whether list was updated
-
-                    # Scroll and get updated list_of_users
-                    self.driver.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight", dialog)
-                    list_of_users = self._clean_list(self.driver.find_element_by_class_name('_b9n99').text)
-
-                    if self.show_progress:
-                        percent_comp = (3 * row + i) / (num_of_img_rows * 3)
-                        percent_comp += (len(list_of_users) / num_of_likes) / (num_of_img_rows * 3)
-                        fill_bar = round(40 * percent_comp)
-                        print('\r\t[' + ('#' * fill_bar) + (' ' * (40 - fill_bar)) + '] ' +
-                              str(round(percent_comp * 100, 3)) + '%', end='', flush=True)
-
-                    time.sleep(0.5)
-
-                    if len(list_of_users) == last_count:
-                        update_delay += 0.5  # list hasn't been updated in ~ 0.5 seconds
-                    else:
-                        update_delay = 0
-
-                    if update_delay == 10:  # list hasn't been updated for > 10 seconds
-                        if not len(list_of_users) + 1 == num_of_likes:  # Sometimes the like count is off by 1
-                            print('\nTIMEOUT ERROR: Page hasn\'t refreshed for 10 seconds, loop stopped at getting user'
-                                  ' %d of %d\n\tprogram will skip this post and move-on' % (last_count, num_of_likes))
-                        elif self.show_progress:
-                            percent_comp = (3 * row + i + 1) / (num_of_img_rows * 3)
-                            fill_bar = round(40 * percent_comp)
-                            print('\r\t[' + ('#' * fill_bar) + (' ' * (40 - fill_bar)) + '] ' +
-                                  str(round(percent_comp * 100, 3)) + '%', end='', flush=True)
-
-                        break
-
-                data_per_post.append(list_of_users)
+                data_per_post.append(post_data)
 
                 # Close iframe
                 self.driver.find_element_by_xpath('/html/body/div[4]/div/button').click()
 
-        total_likes = sum([len(list_) for list_ in data_per_post])
+        print(data_per_post)
+
+        total_likes = sum([data['likes'] for data in data_per_post])
         avg_likes = len(data_per_post) / total_likes
 
         # Add collected data to self attribute
-        self.data['likes_per_post'] = data_per_post
+        self.data['data_per_post'] = data_per_post
         self.data['total_likes'] = total_likes
         self.data['avg_likes'] = avg_likes
 
     def output_data(self) -> None:
         """
         Output self.data to [USERNAME]_data.json
-        Overwrites if data already present.
+        Updates data if already present.
         """
         import json
         from json.decoder import JSONDecodeError
@@ -303,6 +286,55 @@ class IGAccess:
 
         return list_of_users
 
+    def _get_likes_from_post(self, row: int, i: int, num_of_img_rows: int, num_of_likes: int):
+        """
+        Get number of likes and user who likes post from current iframe
+        """
+        # Get the number of likes and click on the likes link
+        like_obj = self.driver.find_element_by_xpath(
+            '/html/body/div[4]/div/div[2]/div/article/div[2]/section[2]/div/a')
+        like_obj.click()
+
+        time.sleep(0.5)
+
+        # Keep scrolling down the iframe until all users are showing
+        dialog = self.driver.find_element_by_xpath('/html/body/div[4]/div/div[2]/div/article/div[2]/div[2]')
+        list_of_users = self._clean_list(self.driver.find_element_by_class_name('_b9n99').text)
+        update_delay = 0
+        while len(list_of_users) < num_of_likes:
+            last_count = len(list_of_users)  # Keep track of whether list was updated
+
+            # Scroll and get updated list_of_users
+            self.driver.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight", dialog)
+            list_of_users = self._clean_list(self.driver.find_element_by_class_name('_b9n99').text)
+
+            if self.show_progress:
+                percent_comp = (3 * row + i) / (num_of_img_rows * 3)
+                percent_comp += (len(list_of_users) / num_of_likes) / (num_of_img_rows * 3)
+                fill_bar = round(40 * percent_comp)
+                print('\r\t[' + ('#' * fill_bar) + (' ' * (40 - fill_bar)) + '] ' +
+                      str(round(percent_comp * 100, 3)) + '%', end='', flush=True)
+
+            time.sleep(0.5)
+
+            if len(list_of_users) == last_count:
+                update_delay += 0.5  # list hasn't been updated in ~ 0.5 seconds
+            else:
+                update_delay = 0
+
+            if update_delay == 10:  # list hasn't been updated for > 10 seconds
+                if not len(list_of_users) + 1 == num_of_likes:  # Sometimes the like count is off by 1
+                    print('\nTIMEOUT ERROR: Page hasn\'t refreshed for 10 seconds, loop stopped at getting user'
+                          ' %d of %d\n\tprogram will skip this post and move-on' % (last_count, num_of_likes))
+                elif self.show_progress:
+                    percent_comp = (3 * row + i + 1) / (num_of_img_rows * 3)
+                    fill_bar = round(40 * percent_comp)
+                    print('\r\t[' + ('#' * fill_bar) + (' ' * (40 - fill_bar)) + '] ' +
+                          str(round(percent_comp * 100, 3)) + '%', end='', flush=True)
+                break
+
+        return list_of_users
+
     @staticmethod
     def _clean_list(raw_string: str) -> List[str]:
         """
@@ -313,7 +345,7 @@ class IGAccess:
 
         # Loop through raw list of users and pick out users
         for i in range(len(raw_list)):
-            # If the line is followed by a line containing Following or Follow, it's a user line
+            # If the line is followed by a line containing Following or Follow, it's a username line
             if i == 0 or raw_list[i-1] in ['Following', 'Follow']:
                 name = raw_list[i]
                 # Add a (Verified) tag if the account is verified
@@ -341,9 +373,9 @@ if __name__ == '__main__':
 
     iga.login(chromedriver_location)
 
-    iga.collect_follow_data()
-
-    iga.collect_follow_diff()
+    # iga.collect_follow_data()
+    #
+    # iga.collect_follow_diff()
     # data = iga.data
     #
     # print('\n%d people don\'t follow you back:' % len(data['not_followed_back']))
@@ -362,7 +394,7 @@ if __name__ == '__main__':
     # for user in data['followed_by_verified']:
     #     print('\t%s' % user)
 
-    # iga.collect_likes_data()
+    iga.collect_likes_data()
 
     iga.output_data()
 
