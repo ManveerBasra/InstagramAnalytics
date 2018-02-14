@@ -3,7 +3,9 @@ Module for IG Access
 """
 from selenium import webdriver
 from selenium.common.exceptions import NoSuchElementException
-from typing import List
+from selenium.webdriver.common.action_chains import ActionChains
+from typing import List, Dict, Any
+from bs4 import BeautifulSoup
 import time
 
 
@@ -29,7 +31,7 @@ class IGAccess:
                     > followed_by_verified
                     > num_posts
                     > data_per_post - list of dictionaries for each post, keys:
-                        > url
+                        > id
                         > likes
                         > liked_by
                         > comments
@@ -91,9 +93,15 @@ class IGAccess:
         if self.show_progress:
             print('\nLogging out')
 
-        # Go to user's profile and click logout
+        # Go to user's profile
         self.driver.get('https://www.instagram.com/%s' % self.username)
-        self.driver.find_element_by_class_name('coreSpriteMobileNavSettings').click()
+
+        # Scroll to settings button and click it
+        settings_button = self.driver.find_element_by_class_name('coreSpriteMobileNavSettings')
+        self.driver.execute_script("return arguments[0].scrollIntoView(true);", settings_button)
+        settings_button.click()
+
+        # Click logout
         self.driver.find_element_by_xpath('/html/body/div[4]/div/div[2]/div/ul/li[4]').click()
 
         time.sleep(0.5)
@@ -153,63 +161,26 @@ class IGAccess:
 
         if self.show_progress:
             print('Getting data per post')
-
-        num_of_posts = int(self.driver.find_element_by_xpath(
-            '//*[@id="react-root"]/section/main/article/header/section/ul/li[1]/span').text.split(' ')[0])
-
-        if self.show_progress:
             print('Progress:')
             print('\t[' + (' ' * 40) + ']' + ' 0%', end='', flush=True)
 
+        soup = BeautifulSoup(self.driver.page_source, 'html.parser')
+
+        # Get post id's and add dictionaries with this data to data_per_post
         data_per_post = []
-        for i in range(num_of_posts):
-            row = i // 3 + 1
-            img_index = i % 3 + 1
+        for link in soup.html.body.span.section.main.article.findAll('a', href=True):
+            if link['href'].startswith('/p/'):
+                data_per_post.append({'id': link['href'].split('/')[2]})
 
-            img_xpath = '//*[@id="react-root"]/section/main/article/div[2]/div/div[%d]/div[%d]' % (row, img_index)
+        num_of_posts = len(data_per_post)
 
-            try:
-                img = self.driver.find_element_by_xpath(img_xpath)
-            except NoSuchElementException:
-                # implies no more images in this row
-                continue
+        # Get comment and like data
+        self._get_comment_data(num_of_posts, data_per_post)
+        self._get_like_data(num_of_posts, data_per_post)
 
-            # Hover over image and get likes/comments data
-            ActionChains(self.driver).move_to_element(img).perform()
-            snapshot_index = 2
-            snapshot_data = self.driver.find_element_by_xpath(img_xpath + '/a/div[2]').text.split('\n')
-
-            # If Post has multiple images, it's snapshot will be in a higher index
-            while 'Post' in snapshot_data:
-                snapshot_index += 1
-                snapshot_data = \
-                    self.driver.find_element_by_xpath(img_xpath + '/a/div[%d]' % snapshot_index).text.split('\n')
-
-            likes = int(snapshot_data[0])
-            comments = int(snapshot_data[2])
-
-            img.click()
-
-            time.sleep(1)
-
-            users_who_liked = self._get_likes_from_post(i, num_of_posts, likes)
-
-            post_data = {
-                'url': self.driver.current_url,
-                'likes': len(users_who_liked),
-                'liked_by': users_who_liked,
-                'comments': comments
-            }
-
-            data_per_post.append(post_data)
-
-            # Close iframe
-            self.driver.find_element_by_xpath('/html/body/div[4]/div/button').click()
-
-        print(data_per_post)
-
+        # Calculate total_likes and avg_likes
         total_likes = sum([data['likes'] for data in data_per_post])
-        avg_likes = len(data_per_post) / total_likes
+        avg_likes = total_likes / len(data_per_post)
 
         # Add collected data to self attribute
         self.data['data_per_post'] = data_per_post
@@ -225,7 +196,7 @@ class IGAccess:
         from json.decoder import JSONDecodeError
 
         if self.show_progress:
-            print('\nWriting data to %s_data.json' % self.username)
+            print('\n\nWriting data to %s_data.json' % self.username)
 
         with open('%s_data.json' % self.username, 'w+') as f:
             try:
@@ -245,8 +216,9 @@ class IGAccess:
         Return a list of user's followers
         """
         # Get number of followers and click followers link
-        followers_link = self.driver.find_element_by_partial_link_text('followers')
-        num_of_followers = int(followers_link.text.split(' ')[0])
+        followers_link = self.driver.find_element_by_xpath(
+            '//*[@id="react-root"]/section/main/article/header/section/ul/li[2]/a/span')
+        num_of_followers = int(followers_link.get_attribute('title'))
         followers_link.click()
 
         time.sleep(1)
@@ -258,8 +230,9 @@ class IGAccess:
         Return a list of users user is following
         """
         # Get number of following and click following link
-        following_link = self.driver.find_element_by_partial_link_text('following')
-        num_following = int(following_link.text.split(' ')[0])
+        following_link = self.driver.find_element_by_xpath(
+            '//*[@id="react-root"]/section/main/article/header/section/ul/li[3]/a/span')
+        num_following = int(following_link.get_attribute('title'))
         following_link.click()
 
         time.sleep(1)
@@ -268,7 +241,7 @@ class IGAccess:
 
     def _get_list_of_users(self, num_users: int) -> List[str]:
         """
-        Return a list of users with len(num_users) from the current iframe window
+        Return a list of users with len(num_users) from the current iframe window for followers and following
         """
         # Find the current iframe
         dialog = self.driver.find_element_by_xpath('/html/body/div[4]/div/div[2]/div/div[2]')
@@ -295,13 +268,55 @@ class IGAccess:
 
         return list_of_users
 
-    def _get_likes_from_post(self, i: int, num_of_posts: int, num_of_likes: int):
+    def _get_comment_data(self, num_of_posts: int, data_per_post: List[Dict[str, Any]]) -> None:
+        """
+        Add data about post id and number of comments to data_per_post for each post
+        """
+        for i in range(num_of_posts):
+            post_id = data_per_post[i]['id']
+
+            # Get img based on post_id
+            img = self.driver.find_element_by_xpath('//a[contains(@href, "' + post_id + '")]')
+
+            # Hover over image
+            ActionChains(self.driver).move_to_element(img).perform()
+
+            # Get comments data
+            soup = BeautifulSoup(self.driver.page_source, 'html.parser')
+            comments = soup.find_all('li', {'class': '_3apjk'})[0].getText().split('c')[0]
+
+            data_per_post[i]['comments'] = comments
+
+    def _get_like_data(self, num_of_posts: int, data_per_post: List[Dict[str, any]]) -> None:
+        """
+        Add data about likes and like_by to data_per_post for each post
+        """
+        # Click the first image
+        self.driver.find_element_by_xpath('//a[contains(@href, "' + data_per_post[0]['id'] + '")]').click()
+
+        # Keep hitting next button and gathering data about each post's likes
+        for i in range(len(data_per_post)):
+            time.sleep(1)
+            # Get users who liked post
+            users_who_liked = self._get_likes_from_post(i, num_of_posts)
+
+            # Add data to data_per_post
+            data_per_post[i]['likes'] = len(users_who_liked)
+            data_per_post[i]['liked_by'] = users_who_liked
+
+            try:
+                self.driver.find_element_by_class_name('coreSpriteRightPaginationArrow').click()
+            except NoSuchElementException:  # Last post encountered
+                continue
+
+    def _get_likes_from_post(self, i: int, num_of_posts: int):
         """
         Get number of likes and user who likes post from current iframe
         """
         # Get the number of likes and click on the likes link
         like_obj = self.driver.find_element_by_xpath(
             '/html/body/div[4]/div/div[2]/div/article/div[2]/section[2]/div/a')
+        num_of_likes = int(like_obj.text.split(' ')[0])
         like_obj.click()
 
         time.sleep(0.5)
@@ -309,7 +324,9 @@ class IGAccess:
         # Keep scrolling down the iframe until all users are showing
         dialog = self.driver.find_element_by_xpath('/html/body/div[4]/div/div[2]/div/article/div[2]/div[2]')
         list_of_users = self._clean_list(self.driver.find_element_by_class_name('_b9n99').text)
-        update_delay = 0
+
+        update_delay = 0  # Keep track of how long it takes to update list
+
         while len(list_of_users) < num_of_likes:
             last_count = len(list_of_users)  # Keep track of whether list was updated
 
@@ -331,10 +348,12 @@ class IGAccess:
             else:
                 update_delay = 0
 
-            if update_delay == 10:  # list hasn't been updated for > 10 seconds
+            if update_delay == 5:  # list hasn't been updated for > 5 seconds
                 if not len(list_of_users) + 1 == num_of_likes:  # Sometimes the like count is off by 1
-                    print('\nTIMEOUT ERROR: Page hasn\'t refreshed for 10 seconds, loop stopped at getting user'
+                    print('\nTIMEOUT ERROR: Page hasn\'t refreshed for 5 seconds, loop stopped at getting user'
                           ' %d of %d\n\tprogram will skip this post and move-on' % (last_count, num_of_likes))
+                    # Add *empty* elements to fill up list_of_users
+                    list_of_users += ['**Not Found** (TIMEOUT ERROR encountered)'] * (num_of_likes - last_count)
                 elif self.show_progress:
                     percent_comp = (i + 1) / num_of_posts
                     fill_bar = round(40 * percent_comp)
@@ -382,9 +401,9 @@ if __name__ == '__main__':
 
     iga.login(chromedriver_location)
 
-    # iga.collect_follow_data()
-    #
-    # iga.collect_follow_diff()
+    iga.collect_follow_data()
+
+    iga.collect_follow_diff()
     # data = iga.data
     #
     # print('\n%d people don\'t follow you back:' % len(data['not_followed_back']))
@@ -402,7 +421,7 @@ if __name__ == '__main__':
     # print('\n%d Verified users follow you:' % len(data['followed_by_verified']))
     # for user in data['followed_by_verified']:
     #     print('\t%s' % user)
-
+    #
     iga.collect_likes_data()
 
     iga.output_data()
