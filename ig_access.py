@@ -154,48 +154,57 @@ class IGAccess:
         if self.show_progress:
             print('Getting data per post')
 
-        # Get number of rows of posts
-        num_of_img_rows = len(self.driver.find_elements_by_class_name('_mnav9'))
-        data_per_post = []
+        num_of_posts = int(self.driver.find_element_by_xpath(
+            '//*[@id="react-root"]/section/main/article/header/section/ul/li[1]/span').text.split(' ')[0])
 
         if self.show_progress:
             print('Progress:')
             print('\t[' + (' ' * 40) + ']' + ' 0%', end='', flush=True)
 
-        for row in range(num_of_img_rows):
-            for i in range(3):
-                # Get image based on current row and index
-                img_xpath = '//*[@id="react-root"]/section/main/article/div[2]/div/div[%d]/div[%d]' % (row + 1, i + 1)
+        data_per_post = []
+        for i in range(num_of_posts):
+            row = i // 3 + 1
+            img_index = i % 3 + 1
 
-                try:
-                    img = self.driver.find_element_by_xpath(img_xpath)
-                except NoSuchElementException:
-                    # implies no more images in this row
-                    continue
+            img_xpath = '//*[@id="react-root"]/section/main/article/div[2]/div/div[%d]/div[%d]' % (row, img_index)
 
-                # Hover over image and get likes/comments data
-                ActionChains(self.driver).move_to_element(img).perform()
-                snapshot_data = self.driver.find_element_by_xpath(img_xpath + '/a/div[2]').text.split('\n')
-                likes = snapshot_data[0]
-                comments = snapshot_data[2]
+            try:
+                img = self.driver.find_element_by_xpath(img_xpath)
+            except NoSuchElementException:
+                # implies no more images in this row
+                continue
 
-                img.click()
+            # Hover over image and get likes/comments data
+            ActionChains(self.driver).move_to_element(img).perform()
+            snapshot_index = 2
+            snapshot_data = self.driver.find_element_by_xpath(img_xpath + '/a/div[2]').text.split('\n')
 
-                time.sleep(1)
+            # If Post has multiple images, it's snapshot will be in a higher index
+            while 'Post' in snapshot_data:
+                snapshot_index += 1
+                snapshot_data = \
+                    self.driver.find_element_by_xpath(img_xpath + '/a/div[%d]' % snapshot_index).text.split('\n')
 
-                users_who_liked = self._get_likes_from_post(row, i, num_of_img_rows, likes)
+            likes = int(snapshot_data[0])
+            comments = int(snapshot_data[2])
 
-                post_data = {
-                    'url': self.driver.current_url,
-                    'likes': len(users_who_liked),
-                    'liked_by': users_who_liked,
-                    'comments': comments
-                }
+            img.click()
 
-                data_per_post.append(post_data)
+            time.sleep(1)
 
-                # Close iframe
-                self.driver.find_element_by_xpath('/html/body/div[4]/div/button').click()
+            users_who_liked = self._get_likes_from_post(i, num_of_posts, likes)
+
+            post_data = {
+                'url': self.driver.current_url,
+                'likes': len(users_who_liked),
+                'liked_by': users_who_liked,
+                'comments': comments
+            }
+
+            data_per_post.append(post_data)
+
+            # Close iframe
+            self.driver.find_element_by_xpath('/html/body/div[4]/div/button').click()
 
         print(data_per_post)
 
@@ -286,7 +295,7 @@ class IGAccess:
 
         return list_of_users
 
-    def _get_likes_from_post(self, row: int, i: int, num_of_img_rows: int, num_of_likes: int):
+    def _get_likes_from_post(self, i: int, num_of_posts: int, num_of_likes: int):
         """
         Get number of likes and user who likes post from current iframe
         """
@@ -309,8 +318,8 @@ class IGAccess:
             list_of_users = self._clean_list(self.driver.find_element_by_class_name('_b9n99').text)
 
             if self.show_progress:
-                percent_comp = (3 * row + i) / (num_of_img_rows * 3)
-                percent_comp += (len(list_of_users) / num_of_likes) / (num_of_img_rows * 3)
+                percent_comp = i / num_of_posts
+                percent_comp += (len(list_of_users) / num_of_likes) / num_of_posts
                 fill_bar = round(40 * percent_comp)
                 print('\r\t[' + ('#' * fill_bar) + (' ' * (40 - fill_bar)) + '] ' +
                       str(round(percent_comp * 100, 3)) + '%', end='', flush=True)
@@ -327,7 +336,7 @@ class IGAccess:
                     print('\nTIMEOUT ERROR: Page hasn\'t refreshed for 10 seconds, loop stopped at getting user'
                           ' %d of %d\n\tprogram will skip this post and move-on' % (last_count, num_of_likes))
                 elif self.show_progress:
-                    percent_comp = (3 * row + i + 1) / (num_of_img_rows * 3)
+                    percent_comp = (i + 1) / num_of_posts
                     fill_bar = round(40 * percent_comp)
                     print('\r\t[' + ('#' * fill_bar) + (' ' * (40 - fill_bar)) + '] ' +
                           str(round(percent_comp * 100, 3)) + '%', end='', flush=True)
@@ -359,7 +368,7 @@ class IGAccess:
         return return_list
 
 if __name__ == '__main__':
-    import configparserg
+    import configparser
 
     parser = configparser.ConfigParser()
     parser.read('userconfig.ini')
