@@ -96,10 +96,9 @@ class IGAccess:
         # Go to user's profile
         self.driver.get('https://www.instagram.com/%s' % self.username)
 
-        # Scroll to settings button and click it
-        settings_button = self.driver.find_element_by_class_name('coreSpriteMobileNavSettings')
-        self.driver.execute_script("return arguments[0].scrollIntoView(true);", settings_button)
-        settings_button.click()
+        # Scroll to the top and click settings
+        self.driver.execute_script("window.scrollBy(0, -document.body.scrollHeight);")
+        self.driver.find_element_by_class_name('coreSpriteMobileNavSettings').click()
 
         # Click logout
         self.driver.find_element_by_xpath('/html/body/div[4]/div/div[2]/div/ul/li[4]').click()
@@ -153,9 +152,9 @@ class IGAccess:
         self.data['following_verified'] = following_verified
         self.data['followed_by_verified'] = followed_by_verified
 
-    def collect_likes_data(self) -> None:
+    def collect_posts_data(self) -> None:
         """
-        Collect data on how many user's liked pictures
+        Collect like and comment data on user's posts
         """
         self.driver.get('https://www.instagram.com/%s' % self.username)
 
@@ -192,18 +191,29 @@ class IGAccess:
         Output self.data to [USERNAME]_data.json
         Updates data if already present.
         """
+        import os
         import json
         from json.decoder import JSONDecodeError
 
         if self.show_progress:
-            print('\n\nWriting data to %s_data.json' % self.username)
+            print('\nWriting data to %s_data.json' % self.username)
 
-        with open('%s_data.json' % self.username, 'w+') as f:
-            try:
-                data = json.load(f)
-            except JSONDecodeError:  # file is empty
-                data = {}
+        filename = '%s_data.json' % self.username
 
+        # If file doesn't exist already, create it
+        if not os.path.isfile(filename):
+            data = {}
+            with open(filename, 'w+') as f:
+                json.dump(data, f, indent=4)
+        else:  # Otherwise read from file
+            with open(filename, 'r') as f:
+                try:
+                    data = json.load(f)
+                except JSONDecodeError:  # file is empty
+                    data = {}
+
+        # Update data dict and add it to file
+        with open(filename, 'w') as f:
             for key in self.data:
                 data[key] = self.data[key]
 
@@ -232,7 +242,7 @@ class IGAccess:
         # Get number of following and click following link
         following_link = self.driver.find_element_by_xpath(
             '//*[@id="react-root"]/section/main/article/header/section/ul/li[3]/a/span')
-        num_following = int(following_link.get_attribute('title'))
+        num_following = int(following_link.text.split(' ')[0])
         following_link.click()
 
         time.sleep(1)
