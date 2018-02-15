@@ -14,7 +14,7 @@ class IGAccess:
     Represent an IG Access class
 
     === Attributes ===
-    username      - user's username
+    u sername      - user's username
     password      - user's password
     show_progress - whether or not to print progress to user
     driver        - selenium webdriver object
@@ -42,25 +42,25 @@ class IGAccess:
     password: str
     show_progress: bool
 
-    def __init__(self, username: str, password: str, show_progress: bool=False) -> None:
+    def __init__(self, username: str, password: str, chromedriver_location: str, show_progress: bool=False) -> None:
         """
         Initialize a new IG Check class
         """
         self.username, self.password, self.show_progress = username, password, show_progress
         self.data = {}
-        self.driver = None
 
-    def login(self, chromedriver_location: str) -> None:
+        if chromedriver_location == 'ENTER_CHROMEDRIVER_LOCATION':  # User put chromedriver.exe into PATH.
+            self.driver = webdriver.Chrome()
+        else:
+            self.driver = webdriver.Chrome(chromedriver_location)
+
+    def login(self) -> None:
         """
         Log into Instagram
         """
         if self.show_progress:
             print('Logging in')
 
-        if chromedriver_location == 'ENTER_CHROMEDRIVER_LOCATION':  # User put chromedriver.exe into PATH.
-            self.driver = webdriver.Chrome()
-        else:
-            self.driver = webdriver.Chrome(chromedriver_location)
         self.driver.get('https://www.instagram.com/accounts/login/')
 
         time.sleep(0.5)
@@ -165,16 +165,49 @@ class IGAccess:
 
         soup = BeautifulSoup(self.driver.page_source, 'html.parser')
 
+        # Get total number of posts
+        num_of_posts = int(soup.html.body.span.section.main.article.find_all('span', {'class': '_fd86t'})[0]
+                           .get_text().replace(',', ''))
+
         # Get post id's and add dictionaries with this data to data_per_post
         data_per_post = []
         for link in soup.html.body.span.section.main.article.findAll('a', href=True):
             if link['href'].startswith('/p/'):
                 data_per_post.append({'id': link['href'].split('/')[2]})
 
-        num_of_posts = len(data_per_post)
+        for i in range(num_of_posts):
+            post_id = data_per_post[i]['id']
 
-        # Get comment and like data
-        self._get_comment_data(num_of_posts, data_per_post)
+            # Get img based on post_id
+            img = self.driver.find_element_by_xpath('//a[contains(@href, "' + post_id + '")]')
+
+            # Hover over image
+            ActionChains(self.driver).move_to_element(img).perform()
+
+            # Get comments data and add it to data_per_post
+            soup = BeautifulSoup(self.driver.page_source, 'html.parser')
+            comments = soup.find_all('li', {'class': '_3apjk'})[0].getText().split('c')[0]
+            data_per_post[i]['comments'] = comments
+
+            # soup can only see 12 additional items at a time, so we need to scroll down and load again when i hits a
+            # multiple of 12 minus 1
+            if (i + 1) % 12 == 0:
+                # Scroll down
+                self.driver.execute_script('window.scrollTo(0, document.body.scrollHeight)')
+
+                time.sleep(1)
+
+                # Get refreshed page_source
+                soup = BeautifulSoup(self.driver.page_source, 'html.parser')
+
+                for link in soup.html.body.span.section.main.article.find_all('a', href=True):
+                    if link['href'].startswith('/p/'):
+                        new_id = link['href'].split('/')[2]
+                        # Add new_id iff it's not already in data_per_post
+                        if new_id not in [dict_['id'] for dict_ in data_per_post]:
+                            data_per_post.append({'id': new_id})
+
+        # Get like data
         self._get_like_data(num_of_posts, data_per_post)
 
         # Calculate total_likes and avg_likes
@@ -277,25 +310,6 @@ class IGAccess:
         print('\n')
 
         return list_of_users
-
-    def _get_comment_data(self, num_of_posts: int, data_per_post: List[Dict[str, Any]]) -> None:
-        """
-        Add data about post id and number of comments to data_per_post for each post
-        """
-        for i in range(num_of_posts):
-            post_id = data_per_post[i]['id']
-
-            # Get img based on post_id
-            img = self.driver.find_element_by_xpath('//a[contains(@href, "' + post_id + '")]')
-
-            # Hover over image
-            ActionChains(self.driver).move_to_element(img).perform()
-
-            # Get comments data
-            soup = BeautifulSoup(self.driver.page_source, 'html.parser')
-            comments = soup.find_all('li', {'class': '_3apjk'})[0].getText().split('c')[0]
-
-            data_per_post[i]['comments'] = comments
 
     def _get_like_data(self, num_of_posts: int, data_per_post: List[Dict[str, any]]) -> None:
         """
@@ -407,13 +421,13 @@ if __name__ == '__main__':
     password = parser.get('USER', 'password')
     chromedriver_location = parser.get('CHROMEDRIVER', 'driver_location')
 
-    iga = IGAccess(username, password, True)
+    iga = IGAccess(username, password, chromedriver_location, True)
 
-    iga.login(chromedriver_location)
+    iga.login()
 
-    iga.collect_follow_data()
-
-    iga.collect_follow_diff()
+    # iga.collect_follow_data()
+    #
+    # iga.collect_follow_diff()
     # data = iga.data
     #
     # print('\n%d people don\'t follow you back:' % len(data['not_followed_back']))
@@ -431,10 +445,10 @@ if __name__ == '__main__':
     # print('\n%d Verified users follow you:' % len(data['followed_by_verified']))
     # for user in data['followed_by_verified']:
     #     print('\t%s' % user)
-    #
-    iga.collect_likes_data()
 
-    iga.output_data()
+    iga.collect_posts_data()
+
+    # iga.output_data()
 
     time.sleep(5)
     iga.logout()
