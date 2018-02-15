@@ -9,14 +9,9 @@ from bs4 import BeautifulSoup
 import time
 
 
-class IGAccessException(Exception):
-    """Handle IGAccess Exceptions"""
-    pass
-
-
 class IGAccess:
     """
-    Represent an IG Access class
+    Used to access data/interact with Instagram using selenium
 
     === Attributes ===
     username      - user's username
@@ -52,6 +47,7 @@ class IGAccess:
         Initialize a new IG Check class
         """
         self.username, self.password, self.show_progress = username, password, show_progress
+        self.logged_in = False
         self.data = {}
 
         if chromedriver_location == 'ENTER_CHROMEDRIVER_LOCATION':  # User put chromedriver.exe into PATH.
@@ -79,11 +75,10 @@ class IGAccess:
 
         # Prompt user to click 'Log in' button
         print('PROMPT: Click \'Log in\' -', end='')
-        logged_in = False
 
         animation_index = 0
         # Loop until user clicks 'Log in'
-        while not logged_in:
+        while not self.logged_in:
             try:
                 # Check if password was incorrect, if so, raise an exception, otherwise ignore it
                 try:
@@ -95,7 +90,7 @@ class IGAccess:
 
                 # Check if 'profile' icon is showing on page (implies login was successful)
                 self.driver.find_element_by_class_name('coreSpriteDesktopNavProfile')
-                logged_in = True
+                self.logged_in = True
                 print('\rPROMPT: Click \'Log in :)\n')
             except NoSuchElementException:
                 print('\rPROMPT: Click \'Log in\' %s' % waiting_animation[animation_index % 4], end='', flush=True)
@@ -119,11 +114,101 @@ class IGAccess:
         # Click logout
         self.driver.find_element_by_xpath('/html/body/div[4]/div/div[2]/div/ul/li[4]').click()
 
+        self.logged_in = False
+
     def tear_down(self) -> None:
         """
         Close driver
         """
         self.driver.close()
+
+    # ===== ACTION METHODS =====
+
+    def follow(self, user_follow: str) -> None:
+        """
+        Follow user_follow on Instagram using self.username's account
+        """
+        if self.show_progress:
+            print('Following %s on Instagram' % user_follow)
+
+        # Check if user is logged in and user_follow account exists
+        if not self.logged_in:
+            raise IGAccessException('Attempting to follow without logging in first')
+        if self.is_account(user_follow):
+            raise IGAccessException('Attempting to follow an account that doesn\'t exist')
+
+        # Navigate the user_follow's page and get follow_button
+        self.driver.get('https://www.instagram.com/%s' % user_follow)
+        follow_button = self.driver.find_element_by_xpath(
+            '//*[@id="react-root"]/section/main/article/header/section/div[1]/span[2]/span[1]/button')
+
+        if follow_button.text == 'Following':
+            print('You already follow %s on Instagram' % user_follow)
+        else:
+            follow_button.click()
+            if self.show_progress:
+                output = 'Requested to follow' if self.is_private(user_follow) else 'Following'
+                print('%s %s' % (output, user_follow))
+
+    def unfollow(self, user_follow: str) -> None:
+        """
+        Unfollow user_follow on Instagram using self.username's account
+        """
+        if self.show_progress:
+            print('Unfollowing %s on Instagram' % user_follow)
+
+        # Check if user is logged in and user_follow account exists
+        if not self.logged_in:
+            raise IGAccessException('Attempting to unfollow without logging in first')
+        if self.is_account(user_follow):
+            raise IGAccessException('Attempting to unfollow an account that doesn\'t exist')
+
+        # Navigate the user_follow's page and get follow_button
+        self.driver.get('https://www.instagram.com/%s' % user_follow)
+        follow_button = self.driver.find_element_by_xpath(
+            '//*[@id="react-root"]/section/main/article/header/section/div[1]/span[2]/span[1]/button')
+
+        if follow_button.text == 'Follow':
+            print('You already don\'t follow %s on Instagram' % user_follow)
+        else:
+            follow_button.click()
+            if self.show_progress:
+                print('Unfollowed %s' % user_follow)
+
+    # ===== DATA-RETURNING METHODS =====
+
+    def is_account(self, username: str) -> bool:
+        """
+        Return whether username is associated with an account
+        """
+        self.driver.get('https://www.instagram.com/%s' % username)
+
+        time.sleep(0.5)
+
+        # Try to find an error msg
+        soup = BeautifulSoup(self.driver.page_source, 'html.parser')
+        page_error_msg = soup.find_all('div', {'class': '-cx-PRIVATE-ErrorPage__errorContainer'})
+
+        return page_error_msg != [] and page_error_msg[0].find(
+            'h2').get_text() == 'Sorry, this page isn\'t available.'
+
+    def is_private(self, username: str) -> bool:
+        """
+        Return whether username's account is private on Instagram
+        """
+        # Check whether account actually exists
+        if not self.is_account(username):
+            raise IGAccessException('username isn\'t associated with an Instagram account')
+
+        self.driver.get('https://www.instagram.com/%s' % username)
+
+        time.sleep(0.5)
+
+        # Try to find 'Account is private' msg
+        soup = BeautifulSoup(self.driver.page_source, 'html.parser')
+        private_data = soup.find_all('h2', {'class': '_kcrwx'})
+
+        return private_data != [] and private_data[0].get_text() == 'This Account is Private'
 
     # ===== DATA-HANDLING METHODS =====
 
@@ -269,36 +354,6 @@ class IGAccess:
                 data[key] = self.data[key]
 
             json.dump(data, f, indent=4)
-
-    # ===== DATA-RETURNING METHODS =====
-
-    def is_account(self, username: str) -> bool:
-        """
-        Return whether username is associated with an account
-        """
-        self.driver.get('https://www.instagram.com/%s' % username)
-
-        # Try to find an error msg
-        soup = BeautifulSoup(self.driver.page_source, 'html.parser')
-        page_error_msg = soup.find_all('div', {'class': '-cx-PRIVATE-ErrorPage__errorContainer'})
-
-        return page_error_msg != [] and page_error_msg[0].find('h2').get_text() == 'Sorry, this page isn\'t available.'
-
-    def is_private(self, username: str) -> bool:
-        """
-        Return whether username's account is private on Instagram
-        """
-        # Check whether account actually exists
-        if not self.is_account(username):
-            raise IGAccessException('username isn\'t associated with an Instagram account')
-
-        self.driver.get('https://www.instagram.com/%s' % username)
-
-        # Try to find 'Account is private' msg
-        soup = BeautifulSoup(self.driver.page_source, 'html.parser')
-        private_data = soup.find_all('h2', {'class': '_kcrwx'})
-
-        return private_data != [] and private_data[0].get_text() == 'This Account is Private'
 
     # ===== PRIVATE HELPER METHODS =====
 
@@ -470,7 +525,7 @@ if __name__ == '__main__':
 
     iga = IGAccess(username, password, chromedriver_location, True)
 
-    # iga.login()
+    iga.login()
     #
     # iga.collect_follow_data()
     #
@@ -480,6 +535,5 @@ if __name__ == '__main__':
 
     # iga.output_data()
 
-    time.sleep(5)
-    # iga.logout()
+    iga.logout()
     iga.tear_down()
