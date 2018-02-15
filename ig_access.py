@@ -9,12 +9,17 @@ from bs4 import BeautifulSoup
 import time
 
 
+class IGAccessException(Exception):
+    """Handle IGAccess Exceptions"""
+    pass
+
+
 class IGAccess:
     """
     Represent an IG Access class
 
     === Attributes ===
-    u sername      - user's username
+    username      - user's username
     password      - user's password
     show_progress - whether or not to print progress to user
     driver        - selenium webdriver object
@@ -54,6 +59,8 @@ class IGAccess:
         else:
             self.driver = webdriver.Chrome(chromedriver_location)
 
+    # ===== SETUP/TEARDOWN METHODS =====
+
     def login(self) -> None:
         """
         Log into Instagram
@@ -78,6 +85,15 @@ class IGAccess:
         # Loop until user clicks 'Log in'
         while not logged_in:
             try:
+                # Check if password was incorrect, if so, raise an exception, otherwise ignore it
+                try:
+                    self.driver.find_element_by_id('slfErrorAlert')
+                    print('\n')
+                    raise IGAccessException('Incorrect password, double-check the username and password you provided')
+                except NoSuchElementException:
+                    pass
+
+                # Check if 'profile' icon is showing on page (implies login was successful)
                 self.driver.find_element_by_class_name('coreSpriteDesktopNavProfile')
                 logged_in = True
                 print('\rPROMPT: Click \'Log in :)\n')
@@ -103,10 +119,13 @@ class IGAccess:
         # Click logout
         self.driver.find_element_by_xpath('/html/body/div[4]/div/div[2]/div/ul/li[4]').click()
 
-        time.sleep(0.5)
-
-        # Close browser
+    def tear_down(self) -> None:
+        """
+        Close driver
+        """
         self.driver.close()
+
+    # ===== DATA-HANDLING METHODS =====
 
     def collect_follow_data(self) -> None:
         """
@@ -160,7 +179,6 @@ class IGAccess:
 
         if self.show_progress:
             print('Getting data per post')
-            print('Progress:')
             print('\t[' + (' ' * 40) + ']' + ' 0%', end='', flush=True)
 
         soup = BeautifulSoup(self.driver.page_source, 'html.parser')
@@ -252,6 +270,36 @@ class IGAccess:
 
             json.dump(data, f, indent=4)
 
+    # ===== DATA-RETURNING METHODS =====
+
+    def is_account(self, username: str) -> bool:
+        """
+        Return whether username is associated with an account
+        """
+        self.driver.get('https://www.instagram.com/%s' % username)
+
+        # Try to find an error msg
+        soup = BeautifulSoup(self.driver.page_source, 'html.parser')
+        page_error_msg = soup.find_all('div', {'class': '-cx-PRIVATE-ErrorPage__errorContainer'})
+
+        return page_error_msg != [] and page_error_msg[0].find('h2').get_text() == 'Sorry, this page isn\'t available.'
+
+    def is_private(self, username: str) -> bool:
+        """
+        Return whether username's account is private on Instagram
+        """
+        # Check whether account actually exists
+        if not self.is_account(username):
+            raise IGAccessException('username isn\'t associated with an Instagram account')
+
+        self.driver.get('https://www.instagram.com/%s' % username)
+
+        # Try to find 'Account is private' msg
+        soup = BeautifulSoup(self.driver.page_source, 'html.parser')
+        private_data = soup.find_all('h2', {'class': '_kcrwx'})
+
+        return private_data != [] and private_data[0].get_text() == 'This Account is Private'
+
     # ===== PRIVATE HELPER METHODS =====
 
     def _get_followers(self) -> List[str]:
@@ -290,8 +338,7 @@ class IGAccess:
         dialog = self.driver.find_element_by_xpath('/html/body/div[4]/div/div[2]/div/div[2]')
 
         if self.show_progress:
-            print('Progress:', flush=True)
-            print('\t[' + (' ' * 40) + ']' + ' 0%', end='')
+            print('\t[' + (' ' * 40) + ']' + ' 0%', end='', flush=True)
 
         # Keep scrolling down the iframe until all users are showing
         list_of_users = self._clean_list(self.driver.find_element_by_class_name('_b9n99').text)
@@ -374,10 +421,10 @@ class IGAccess:
 
             if update_delay == 5:  # list hasn't been updated for > 5 seconds
                 if not len(list_of_users) + 1 == num_of_likes:  # Sometimes the like count is off by 1
-                    print('\nTIMEOUT ERROR: Page hasn\'t refreshed for 5 seconds, loop stopped at getting user'
-                          ' %d of %d\n\tprogram will skip this post and move-on' % (last_count, num_of_likes))
-                    # Add *empty* elements to fill up list_of_users
-                    list_of_users += ['**Not Found** (TIMEOUT ERROR encountered)'] * (num_of_likes - last_count)
+                    print('\n')
+                    raise IGAccessException(
+                        'TIMEOUT ERROR: Page hasn\'t refreshed for 5 seconds, loop stopped at getting user %d of %d'
+                        'try again when you have better internet speeds' % (last_count, num_of_likes))
                 elif self.show_progress:
                     percent_comp = (i + 1) / num_of_posts
                     fill_bar = round(40 * percent_comp)
@@ -423,32 +470,16 @@ if __name__ == '__main__':
 
     iga = IGAccess(username, password, chromedriver_location, True)
 
-    iga.login()
-
+    # iga.login()
+    #
     # iga.collect_follow_data()
     #
     # iga.collect_follow_diff()
-    # data = iga.data
     #
-    # print('\n%d people don\'t follow you back:' % len(data['not_followed_back']))
-    # for user in data['not_followed_back']:
-    #     print('\t%s' % user)
-    #
-    # print('\nYou don\'t follow %d back:' % len(data['not_following_back']))
-    # for user in data['not_following_back']:
-    #     print('\t%s' % user)
-    #
-    # print('\n You follow %d Verified users:' % len(data['following_verified']))
-    # for user in data['following_verified']:
-    #     print('\t%s' % user)
-    #
-    # print('\n%d Verified users follow you:' % len(data['followed_by_verified']))
-    # for user in data['followed_by_verified']:
-    #     print('\t%s' % user)
-
-    iga.collect_posts_data()
+    # iga.collect_posts_data()
 
     # iga.output_data()
 
     time.sleep(5)
-    iga.logout()
+    # iga.logout()
+    iga.tear_down()
