@@ -219,7 +219,6 @@ class IGAccess:
 
         if self.show_progress:
             print('Getting data per post')
-            print('\t[' + (' ' * 40) + ']' + ' 0%', end='', flush=True)
 
         soup = BeautifulSoup(self.driver.page_source, 'html.parser')
 
@@ -270,7 +269,10 @@ class IGAccess:
 
         # Calculate total_likes and avg_likes
         total_likes = sum([data['likes'] for data in data_per_post])
-        avg_likes = total_likes / len(data_per_post)
+
+        avg_likes = 0
+        if len(data_per_post) != 0:
+            avg_likes = total_likes / len(data_per_post)
 
         # Add collected data to self attribute
         try:
@@ -319,10 +321,13 @@ class IGAccess:
         Return a list of user's followers
         """
         # Get number of followers and click followers link
-        followers_link = self.driver.find_element_by_xpath(
-            '//*[@id="react-root"]/section/main/article/header/section/ul/li[2]/a/span')
-        num_of_followers = int(followers_link.get_attribute('title'))
-        followers_link.click()
+        try:
+            followers_link = self.driver.find_element_by_xpath(
+                '//*[@id="react-root"]/section/main/article/header/section/ul/li[2]/a/span')
+            num_of_followers = int(followers_link.get_attribute('title'))
+            followers_link.click()
+        except NoSuchElementException:  # user has no followers
+            return []
 
         time.sleep(1)
 
@@ -333,10 +338,13 @@ class IGAccess:
         Return a list of users user is following
         """
         # Get number of following and click following link
-        following_link = self.driver.find_element_by_xpath(
-            '//*[@id="react-root"]/section/main/article/header/section/ul/li[3]/a/span')
-        num_following = int(following_link.text.split(' ')[0])
-        following_link.click()
+        try:
+            following_link = self.driver.find_element_by_xpath(
+                '//*[@id="react-root"]/section/main/article/header/section/ul/li[3]/a/span')
+            num_following = int(following_link.text.split(' ')[0])
+            following_link.click()
+        except NoSuchElementException:  # user has no following
+            return []
 
         time.sleep(1)
 
@@ -374,8 +382,11 @@ class IGAccess:
         """
         Add data about likes and like_by to data_per_post for each post
         """
-        # Click the first image
-        self.driver.find_element_by_xpath('//a[contains(@href, "' + data_per_post[0]['id'] + '")]').click()
+        try:
+            # Click the first image
+            self.driver.find_element_by_xpath('//a[contains(@href, "' + data_per_post[0]['id'] + '")]').click()
+        except IndexError:  # user has no posts
+            pass
 
         # Keep hitting next button and gathering data about each post's likes
         for i in range(len(data_per_post)):
@@ -439,7 +450,7 @@ class IGAccess:
                     print('\n')
                     raise IGAccessException(
                         'TIMEOUT ERROR: Page hasn\'t refreshed for 5 seconds, loop stopped at getting user %d of %d'
-                        'try again when you have better internet speeds' % (last_count, num_of_likes))
+                        ', try again when you have better internet speeds' % (last_count, num_of_likes))
                 elif self.show_progress:
                     percent_comp = (i + 1) / num_of_posts
                     fill_bar = round(40 * percent_comp)

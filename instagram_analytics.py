@@ -24,14 +24,15 @@ class InstagramAnalytics:
         """
         self.access = IGAccess(chromedriver_location, not quiet)
 
-    def run(self, username: str, password: str, accounts: List) -> None:
+    def run(self, username: str, password: str, accounts: Union[List, str]) -> None:
         """
         Login using username and password, and gather and output data for each account in accounts
         """
+        if isinstance(accounts, str):
+            accounts = list(accounts)
 
         if not self.access.is_account(username):
-            # raise IGAccessException('%s isn\'t a username on Instagram' % username)
-            pass
+            raise IGAccessException('%s isn\'t a username on Instagram' % username)
 
         self.access.login(username, password)
 
@@ -67,6 +68,14 @@ if __name__ == '__main__':
     cloc = cparser.get('CHROMEDRIVER', 'driver_location')
     accs = cparser.get('ACCOUNTS', 'accounts')
     quiet = cparser.get('SETTINGS', 'quiet')
+
+    if cloc == 'ENTER_CHROMEDRIVER_LOCATION':
+        cloc = ''
+
+    if quiet == 'False':
+        quiet = False
+    elif quiet == 'True':
+        quiet = True
 
     ia = InstagramAnalytics(cloc, quiet)
     ia.run(user, passw, accs.split(','))
