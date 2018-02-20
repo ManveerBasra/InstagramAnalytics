@@ -9,18 +9,22 @@ from bs4 import BeautifulSoup
 import time
 
 
+class IGAccessException(Exception):
+    """Handle IGAccess Exceptions"""
+    pass
+
+
 class IGAccess:
     """
-    Used to access data/interact with Instagram using selenium
+    Class used to access data from Instagram using Selenium
 
     === Attributes ===
-    username      - user's username
-    password      - user's password
+    logged_in     - whether or not user is logged in
     show_progress - whether or not to print progress to user
     driver        - selenium webdriver object
     followers     - list of followers
     following     - list of following
-    data          - dictionary of collected data, keys:
+    data          - dictionary of collected data, keys are usernames with a value of dictionary with keys:
                     > num_followers
                     > num_following
                     > followers
@@ -38,26 +42,25 @@ class IGAccess:
                     > total_likes
                     > avg_likes
     """
-    username: str
-    password: str
     show_progress: bool
+    chromedriver_location: str
 
-    def __init__(self, username: str, password: str, chromedriver_location: str, show_progress: bool=False) -> None:
+    def __init__(self, chromedriver_location: str, show_progress: bool) -> None:
         """
         Initialize a new IG Check class
         """
-        self.username, self.password, self.show_progress = username, password, show_progress
+        self.show_progress = show_progress
         self.logged_in = False
         self.data = {}
 
-        if chromedriver_location == 'ENTER_CHROMEDRIVER_LOCATION':  # User put chromedriver.exe into PATH.
+        if chromedriver_location == '':  # User put chromedriver.exe into PATH.
             self.driver = webdriver.Chrome()
         else:
             self.driver = webdriver.Chrome(chromedriver_location)
 
     # ===== SETUP/TEARDOWN METHODS =====
 
-    def login(self) -> None:
+    def login(self, username, password) -> None:
         """
         Log into Instagram
         """
@@ -66,10 +69,10 @@ class IGAccess:
 
         self.driver.get('https://www.instagram.com/accounts/login/')
 
-        time.sleep(0.5)
+        time.sleep(1)
 
-        self.driver.find_element_by_name('username').send_keys(self.username)
-        self.driver.find_element_by_name('password').send_keys(self.password)
+        self.driver.find_element_by_name('username').send_keys(username)
+        self.driver.find_element_by_name('password').send_keys(password)
 
         waiting_animation = ['\\', '|', '/', '-']
 
@@ -91,13 +94,13 @@ class IGAccess:
                 # Check if 'profile' icon is showing on page (implies login was successful)
                 self.driver.find_element_by_class_name('coreSpriteDesktopNavProfile')
                 self.logged_in = True
-                print('\rPROMPT: Click \'Log in :)\n')
+                print('\rPROMPT: Click \'Log in\' :)')
             except NoSuchElementException:
                 print('\rPROMPT: Click \'Log in\' %s' % waiting_animation[animation_index % 4], end='', flush=True)
                 animation_index += 1
                 time.sleep(1)
 
-    def logout(self) -> None:
+    def logout(self, username) -> None:
         """
         Logout of Instagram and exit
         """
@@ -105,7 +108,7 @@ class IGAccess:
             print('\nLogging out')
 
         # Go to user's profile
-        self.driver.get('https://www.instagram.com/%s' % self.username)
+        self.driver.get('https://www.instagram.com/%s' % username)
 
         # Scroll to the top and click settings
         self.driver.execute_script("window.scrollBy(0, -document.body.scrollHeight);")
@@ -122,117 +125,67 @@ class IGAccess:
         """
         self.driver.close()
 
-    # ===== ACTION METHODS =====
-
-    def follow(self, user_follow: str) -> None:
-        """
-        Follow user_follow on Instagram using self.username's account
-        """
-        if self.show_progress:
-            print('Following %s on Instagram' % user_follow)
-
-        # Check if user is logged in and user_follow account exists
-        if not self.logged_in:
-            raise IGAccessException('Attempting to follow without logging in first')
-        if self.is_account(user_follow):
-            raise IGAccessException('Attempting to follow an account that doesn\'t exist')
-
-        # Navigate the user_follow's page and get follow_button
-        self.driver.get('https://www.instagram.com/%s' % user_follow)
-        follow_button = self.driver.find_element_by_xpath(
-            '//*[@id="react-root"]/section/main/article/header/section/div[1]/span[2]/span[1]/button')
-
-        if follow_button.text == 'Following':
-            print('You already follow %s on Instagram' % user_follow)
-        else:
-            follow_button.click()
-            if self.show_progress:
-                output = 'Requested to follow' if self.is_private(user_follow) else 'Following'
-                print('%s %s' % (output, user_follow))
-
-    def unfollow(self, user_follow: str) -> None:
-        """
-        Unfollow user_follow on Instagram using self.username's account
-        """
-        if self.show_progress:
-            print('Unfollowing %s on Instagram' % user_follow)
-
-        # Check if user is logged in and user_follow account exists
-        if not self.logged_in:
-            raise IGAccessException('Attempting to unfollow without logging in first')
-        if self.is_account(user_follow):
-            raise IGAccessException('Attempting to unfollow an account that doesn\'t exist')
-
-        # Navigate the user_follow's page and get follow_button
-        self.driver.get('https://www.instagram.com/%s' % user_follow)
-        follow_button = self.driver.find_element_by_xpath(
-            '//*[@id="react-root"]/section/main/article/header/section/div[1]/span[2]/span[1]/button')
-
-        if follow_button.text == 'Follow':
-            print('You already don\'t follow %s on Instagram' % user_follow)
-        else:
-            follow_button.click()
-            if self.show_progress:
-                print('Unfollowed %s' % user_follow)
-
     # ===== DATA-RETURNING METHODS =====
 
     def is_account(self, username: str) -> bool:
         """
-        Return whether username is associated with an account
+        Return whether username is associated with an Instagram account
         """
         self.driver.get('https://www.instagram.com/%s' % username)
 
-        time.sleep(0.5)
+        time.sleep(1)
 
         # Try to find an error msg
         soup = BeautifulSoup(self.driver.page_source, 'html.parser')
         page_error_msg = soup.find_all('div', {'class': '-cx-PRIVATE-ErrorPage__errorContainer'})
 
-        return page_error_msg != [] and page_error_msg[0].find(
-            'h2').get_text() == 'Sorry, this page isn\'t available.'
+        return not (page_error_msg != [] and
+                    page_error_msg[0].find('h2').get_text() == 'Sorry, this page isn\'t available.')
 
     def is_private(self, username: str) -> bool:
         """
         Return whether username's account is private on Instagram
         """
-        # Check whether account actually exists
-        if not self.is_account(username):
-            raise IGAccessException('username isn\'t associated with an Instagram account')
 
         self.driver.get('https://www.instagram.com/%s' % username)
 
-        time.sleep(0.5)
+        time.sleep(1)
 
         # Try to find 'Account is private' msg
         soup = BeautifulSoup(self.driver.page_source, 'html.parser')
         private_data = soup.find_all('h2', {'class': '_kcrwx'})
 
-        return private_data != [] and private_data[0].get_text() == 'This Account is Private'
+        return not (private_data != [] and
+                    private_data[0].get_text() == 'This Account is Private')
 
     # ===== DATA-HANDLING METHODS =====
 
-    def collect_follow_data(self) -> None:
+    def collect_follow_data(self, username: str) -> None:
         """
         Collect data about user's followers and following
         """
         if self.show_progress:
             print('Getting user\'s followers')
         # Get list of user's followers
-        self.driver.get('https://www.instagram.com/%s' % self.username)
+        self.driver.get('https://www.instagram.com/%s' % username)
+        self.driver.execute_script("window.scrollBy(0, -document.body.scrollHeight);")
         followers = self._get_followers()
 
         if self.show_progress:
             print('Getting user\'s following')
         # Get list of users user's following
-        self.driver.get('https://www.instagram.com/%s' % self.username)
+        self.driver.get('https://www.instagram.com/%s' % username)
         following = self._get_following()
 
         # Add to self.data
-        self.data['num_followers'] = len(followers)
-        self.data['num_following'] = len(following)
-        self.data['followers'] = followers
-        self.data['following'] = following
+        try:
+            self.data[username]
+        except KeyError:  # username isn't in self.data yet
+            self.data[username] = {}
+        self.data[username]['num_followers'] = len(followers)
+        self.data[username]['num_following'] = len(following)
+        self.data[username]['followers'] = followers
+        self.data[username]['following'] = following
 
     def collect_follow_diff(self) -> None:
         """
@@ -241,26 +194,28 @@ class IGAccess:
         if self.show_progress:
             print('Analysing follower/following data')
 
-        followers = self.data['followers']
-        following = self.data['following']
+        for username in self.data:
 
-        not_followed_back = [user for user in following if user not in followers]
-        not_following_back = [user for user in followers if user not in following]
+            followers = self.data[username]['followers']
+            following = self.data[username]['following']
 
-        following_verified = [user for user in following if '(Verified)' in user]
-        followed_by_verified = [user for user in followers if '(Verified)' in user]
+            not_followed_back = [user for user in following if user not in followers]
+            not_following_back = [user for user in followers if user not in following]
 
-        # Append gathered data into self.data
-        self.data['not_followed_back'] = not_followed_back
-        self.data['not_following_back'] = not_following_back
-        self.data['following_verified'] = following_verified
-        self.data['followed_by_verified'] = followed_by_verified
+            following_verified = [user for user in following if '(Verified)' in user]
+            followed_by_verified = [user for user in followers if '(Verified)' in user]
 
-    def collect_posts_data(self) -> None:
+            # Append gathered data into self.data
+            self.data[username]['not_followed_back'] = not_followed_back
+            self.data[username]['not_following_back'] = not_following_back
+            self.data[username]['following_verified'] = following_verified
+            self.data[username]['followed_by_verified'] = followed_by_verified
+
+    def collect_posts_data(self, username: str) -> None:
         """
         Collect like and comment data on user's posts
         """
-        self.driver.get('https://www.instagram.com/%s' % self.username)
+        self.driver.get('https://www.instagram.com/%s' % username)
 
         if self.show_progress:
             print('Getting data per post')
@@ -318,13 +273,17 @@ class IGAccess:
         avg_likes = total_likes / len(data_per_post)
 
         # Add collected data to self attribute
-        self.data['data_per_post'] = data_per_post
-        self.data['total_likes'] = total_likes
-        self.data['avg_likes'] = avg_likes
+        try:
+            self.data[username]
+        except KeyError:  # username isn't in self.data yet
+            self.data[username] = {}
+        self.data[username]['data_per_post'] = data_per_post
+        self.data[username]['total_likes'] = total_likes
+        self.data[username]['avg_likes'] = avg_likes
 
     def output_data(self) -> None:
         """
-        Output self.data to [USERNAME]_data.json
+        Output self.data to analytic_data.json
         Updates data if already present.
         """
         import os
@@ -332,26 +291,24 @@ class IGAccess:
         from json.decoder import JSONDecodeError
 
         if self.show_progress:
-            print('\nWriting data to %s_data.json' % self.username)
-
-        filename = '%s_data.json' % self.username
+            print('\nWriting data to analytic_data.json')
 
         # If file doesn't exist already, create it
-        if not os.path.isfile(filename):
+        if not os.path.isfile('analytic_data.json'):
             data = {}
-            with open(filename, 'w+') as f:
+            with open('analytic_data.json', 'w+') as f:
                 json.dump(data, f, indent=4)
         else:  # Otherwise read from file
-            with open(filename, 'r') as f:
+            with open('analytic_data.json', 'r') as f:
                 try:
                     data = json.load(f)
                 except JSONDecodeError:  # file is empty
                     data = {}
 
         # Update data dict and add it to file
-        with open(filename, 'w') as f:
-            for key in self.data:
-                data[key] = self.data[key]
+        with open('analytic_data.json', 'w') as f:
+            for user in self.data:
+                data[user] = self.data[user]
 
             json.dump(data, f, indent=4)
 
@@ -413,7 +370,7 @@ class IGAccess:
 
         return list_of_users
 
-    def _get_like_data(self, num_of_posts: int, data_per_post: List[Dict[str, any]]) -> None:
+    def _get_like_data(self, num_of_posts: int, data_per_post: List[Dict[str, Any]]) -> None:
         """
         Add data about likes and like_by to data_per_post for each post
         """
@@ -439,6 +396,9 @@ class IGAccess:
         """
         Get number of likes and user who likes post from current iframe
         """
+        # Scroll to top
+        self.driver.execute_script("window.scrollBy(0, -document.body.scrollHeight);")
+
         # Get the number of likes and click on the likes link
         like_obj = self.driver.find_element_by_xpath(
             '/html/body/div[4]/div/div[2]/div/article/div[2]/section[2]/div/a')
@@ -511,29 +471,3 @@ class IGAccess:
                 return_list.append(name)
 
         return return_list
-
-if __name__ == '__main__':
-    import configparser
-
-    parser = configparser.ConfigParser()
-    parser.read('userconfig.ini')
-    parser.optionxform = str
-
-    username = parser.get('USER', 'username')
-    password = parser.get('USER', 'password')
-    chromedriver_location = parser.get('CHROMEDRIVER', 'driver_location')
-
-    iga = IGAccess(username, password, chromedriver_location, True)
-
-    iga.login()
-    #
-    # iga.collect_follow_data()
-    #
-    # iga.collect_follow_diff()
-    #
-    # iga.collect_posts_data()
-
-    # iga.output_data()
-
-    iga.logout()
-    iga.tear_down()
