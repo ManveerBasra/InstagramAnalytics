@@ -1,5 +1,4 @@
 # InstagramAnalytics
-**CURRENTLY UNDER DEVELOPMENT** <br>
 Gets analytics from user's Instagram account.
 
 ## Setup Instructions
@@ -30,3 +29,6 @@ Put the `chromedriver.exe` into your `user/local` folder or follow the instructi
 
 ### Add information into user_config.ini
 In `user_config.ini` add your Instagram username, password, and location of chromedriver.exe on your computer if it's not in PATH.
+
+## How to run
+Once you have added your information into `user_config.ini`, you can run `instagram_analytics.py` to run the program.
