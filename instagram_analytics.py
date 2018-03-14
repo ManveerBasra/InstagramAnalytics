@@ -72,9 +72,8 @@ if __name__ == '__main__':
     if cloc == 'ENTER_CHROMEDRIVER_LOCATION':
         cloc = ''
 
-    if quiet == 'False':
-        quiet = False
-    elif quiet == 'True':
+    quiet = False
+    if quiet == 'True':
         quiet = True
 
     ia = InstagramAnalytics(cloc, quiet)
