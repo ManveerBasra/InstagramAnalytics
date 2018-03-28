@@ -1,5 +1,5 @@
 # InstagramAnalytics
-Gets analytics from user's Instagram account.
+Gets analytics from user's Instagram account and output to a .json file.
 
 ## Setup Instructions
 You must have `python3` and `pip` installed (`pip` is usually automatically installed with newer versions of python)<br>
