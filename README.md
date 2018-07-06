@@ -1,5 +1,6 @@
+DISCLAIMER: Instagram may have updated their website's structure since the creation of this project, rendering this code error-prone. </br>
+
 # InstagramAnalytics
-DISCLAIMER: Instagram may have updated their website's structure since the creation of this project, rendering this code error-prone.
 Gets analytics from user's Instagram account and output to a .json file.
 
 ## Setup Instructions
